@@ -8,7 +8,7 @@ class IformBuilderAPI implements FormApi
 
     private $clientKey = "bd15f391bb0219ca96f4085d8dcbea19fe0a14da";
     private $secretKey = "3dec15d420a56645462abbc30946580f99249373";
-    private $accessToken = "6be9af17597aaf492f05642befaab1f84367a3a5";
+    private $accessToken = null;
     private $profileId = "469854";
     private $pageId = "3634080";
     private $userId = "53941731";
@@ -39,14 +39,20 @@ class IformBuilderAPI implements FormApi
     public function genAccessToken()
     {
 
-        $jwtHeader = base64_encode('{"ALG":"HS256","TYP":"JWT"}');
-        $jwtClaimSet = base64_encode('{
-							   "ISS": $clientKey,
-							   "AUD": "HTTPS://APP.IFORMBUILDER.COM/EXZACT/API/OAUTH/TOKEN",
-							   "EXP": 1384370238,
-							   "IAT": 1384370228
-							}');
-        $jwtSign = base64_encode('$secretKey');
+        $arr = array();
+        $arr['alg'] = "HS256";
+        $arr['typ'] = "JWT";
+        $jwtHeader = $this->base64UrlEncode(json_encode($arr));
+
+        $arr = array();
+        $arr['iss'] = $this->clientKey;
+        $arr['aud'] = "https://app.iformbuilder.com/exzact/api/oauth/token";
+        $arr['exp'] = time() + 600;
+        $arr['iat'] = time();
+        $jwtClaimSet = $this->base64UrlEncode(json_encode($arr));
+
+        $data = $jwtHeader.".".$jwtClaimSet;
+        $sign = $this->base64UrlEncode(hash_hmac('sha256', $data, $this->secretKey,true));
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, "https://app.iformbuilder.com/exzact/api/oauth/token");
@@ -55,9 +61,11 @@ class IformBuilderAPI implements FormApi
 
         curl_setopt($ch, CURLOPT_POST, true);
 
-        curl_setopt($ch, CURLOPT_POSTFIELDS, "{
-			  \"ASSERTION\": \"$jwtHeader.$jwtClaimSet.$jwtSign\",
-			}");
+        $arr = array();
+        $arr['grant_type'] = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+        $arr['assertion'] = $jwtHeader.".".$jwtClaimSet.".".$sign;
+
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($arr));
 
         curl_setopt($ch, CURLOPT_HTTPHEADER, array(
             "Content-Type: application/json",
@@ -66,15 +74,31 @@ class IformBuilderAPI implements FormApi
         $response = curl_exec($ch);
         curl_close($ch);
 
-        return $response;
+        $responseArr = json_decode($response,true);
+
+        return $responseArr['access_token'];
 
     }
+
+
+    /**
+     * Sets a new access token
+     */
+    public function setAccessToken(){
+        
+        $accessToken = $this->genAccessToken();
+        $this->accessToken = $accessToken;
+        
+    } 
+    
 
     /**
      * Sends a curl request
      */
     public function sendCurlRequest($url, $fields, $isPost = true)
     {
+        
+        $this->setAccessToken();
 
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -139,6 +163,14 @@ class IformBuilderAPI implements FormApi
 
         return json_encode($data);
 
+    }
+
+    /**
+     * Base64 URL Encoding
+     */
+    public function base64UrlEncode($data)
+    {
+      return strtr(rtrim(base64_encode($data), '='), '+/', '-_');
     }
 
 }
